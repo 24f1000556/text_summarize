@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>3-Sentence Text Summarizer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0b1220;
+      --fg: #e7eefc;
+      --muted: #9bb0cf;
+      --accent: #6aa9ff;
+      --panel: #121a2b;
+      --chip: #1b2540;
+      --good: #3ac57a;
+      --warn: #ffb84d;
+      --bad: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 980px; margin: 0 auto; padding: 28px 16px 48px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    h1 { font-size: 20px; margin: 0; letter-spacing: 0.2px; display: flex; align-items: center; gap: 10px; }
+    .badge { background: var(--chip); color: var(--muted); font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid #243153; }
+    .panel { background: var(--panel); border: 1px solid #243153; border-radius: 12px; padding: 16px; margin-top: 14px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    input[type="url"] {
+      flex: 1 1 520px; min-width: 260px; padding: 12px 12px; border-radius: 10px; outline: none; color: var(--fg);
+      border: 1px solid #2a3a63; background: #0f1730;
+    }
+    button {
+      padding: 12px 16px; border-radius: 10px; background: var(--accent); border: 1px solid #4d86e6; color: #06122a; font-weight: 650; cursor: pointer;
+    }
+    button.secondary { background: #172242; border-color: #2a3a63; color: var(--fg); }
+    button:disabled { filter: grayscale(0.6); opacity: 0.7; cursor: not-allowed; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+    .label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .status { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; background: #13213f; border: 1px solid #243153; color: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.ok { background: var(--good); }
+    .dot.warn { background: var(--warn); }
+    .dot.bad { background: var(--bad); }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+    @media (min-width: 960px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+    }
+    pre, textarea, .block {
+      white-space: pre-wrap; word-wrap: break-word; background: #0f1730; color: var(--fg);
+      border: 1px solid #2a3a63; border-radius: 10px; padding: 12px; min-height: 140px;
+    }
+    .small { font-size: 12px; color: var(--muted); }
+    footer { margin-top: 24px; color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .nowrap { white-space: nowrap; }
+    .url-chip {
+      display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; background: #0f1730;
+      border: 1px solid #2a3a63; color: var(--fg); max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>
+        3-Sentence Text Summarizer
+        <span class="badge mono">MIT</span>
+      </h1>
+      <div id="status" class="status"><span class="dot"></span><span class="mono" id="statusText">Idle</span></div>
+    </header>
+
+    <div class="panel">
+      <div class="label">Input (auto-loads when using ?url=...)</div>
+      <div class="row">
+        <input id="urlInput" type="url" placeholder="https://example.com/article.txt" />
+        <button id="summarizeBtn">Summarize</button>
+        <button id="useSampleBtn" class="secondary">Use sample</button>
+      </div>
+      <div class="hint">
+        Tip: Pass a text file URL in the query string, for example:
+        <span class="mono">?url=https://example.com/article.txt</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="label">Detected URL parameter (captcha URL)</div>
+      <div id="passedUrl" class="url-chip mono">None detected</div>
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <div class="label">Source Text</div>
+        <div id="sourceText" class="block" aria-live="polite">No text loaded yet.</div>
+        <div class="small" id="meta"></div>
+      </div>
+
+      <div class="panel">
+        <div class="label">3-Sentence Summary (solved text)</div>
+        <div id="summary" class="block" aria-live="polite">No summary yet.</div>
+        <div class="small">The summary picks top-scoring sentences by word frequency and preserves original order.</div>
+      </div>
+    </div>
+
+    <footer>
+      <div>
+        <span class="nowrap">Built for quick, offline-friendly summarization.</span>
+      </div>
+      <div>
+        <a href="#" id="reloadLink">Reload</a>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    // Default sample text (used when no URL provided or fetch fails)
+    const SAMPLE_TEXT = `
+Modern web applications often need a quick way to digest long passages of text. A concise summary helps readers focus on the key ideas without wading through every detail.
+In this sample article, we describe a lightweight approach to summarization that ranks sentences by word importance. Words that appear frequently—excluding stop words—carry more weight.
+By selecting the top-scoring sentences and preserving their original order, we produce a short, readable summary. This approach is fast, transparent, and requires no external APIs.
+It works well for plain-text articles, documentation, and notes where structure is relatively simple. While not perfect, it provides a strong baseline that is easy to understand and improve.
+    `.trim();
+
+    const statusEl = document.getElementById('status');
+    const statusTextEl = document.getElementById('statusText');
+    const urlInput = document.getElementById('urlInput');
+    const summarizeBtn = document.getElementById('summarizeBtn');
+    const useSampleBtn = document.getElementById('useSampleBtn');
+    const sourceTextEl = document.getElementById('sourceText');
+    const summaryEl = document.getElementById('summary');
+    const metaEl = document.getElementById('meta');
+    const passedUrlEl = document.getElementById('passedUrl');
+    const reloadLink = document.getElementById('reloadLink');
+
+    function setStatus(state, message) {
+      const dot = statusEl.querySelector('.dot');
+      dot.classList.remove('ok', 'warn', 'bad');
+      statusTextEl.textContent = message || state;
+      switch (state) {
+        case 'idle': dot.style.background = 'var(--muted)'; break;
+        case 'loading': dot.classList.add('warn'); break;
+        case 'ok': dot.classList.add('ok'); break;
+        case 'error': dot.classList.add('bad'); break;
+      }
+    }
+
+    function getQueryParam(name) {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name);
+    }
+
+    function showPassedUrl(u) {
+      if (u) {
+        passedUrlEl.textContent = u;
+        passedUrlEl.title = u;
+      } else {
+        passedUrlEl.textContent = 'None detected';
+        passedUrlEl.title = '';
+      }
+    }
+
+    function sanitizeText(s) {
+      if (!s) return '';
+      // Normalize line breaks and spaces
+      s = s.replace(/\r\n|\r/g, '\n');
+      // Remove leading/trailing spaces per line
+      s = s.split('\n').map(line => line.trim()).join('\n');
+      // Collapse multiple newlines to max two
+      s = s.replace(/\n{3,}/g, '\n\n');
+      return s.trim();
+    }
+
+    function splitSentences(text) {
+      // First normalize newlines to sentence breaks for plain text
+      const normalized = text.replace(/([.?!])\s+(?=[A-Z(0-9])/g, '$1|BREAK|')
+                             .replace(/\n+/g, '|BREAK|')
+                             .replace(/\s{2,}/g, ' ');
+      const parts = normalized.split('|BREAK|')
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      // Further split long parts by terminal punctuation if not already present
+      const sentences = [];
+      for (const p of parts) {
+        const chunks = p.split(/(?<=[.?!])\s+/).map(x => x.trim()).filter(Boolean);
+        for (const c of chunks) sentences.push(c);
+      }
+      // Keep non-empty sentences with some alphanum content
+      return sentences.filter(s => /[A-Za-z0-9]/.test(s));
+    }
+
+    function buildWordFreq(text) {
+      const stop = new Set((
+        'a,an,the,and,or,but,if,then,else,when,while,for,to,of,in,on,at,by,from,with,as,that,which,who,whom,' +
+        'this,these,those,there,here,where,why,how,what,was,were,is,are,be,been,being,do,does,did,doing,' +
+        'have,has,had,having,into,over,under,after,before,about,between,through,during,out,up,down,off,again,' +
+        'further,more,most,some,any,each,few,both,other,own,same,so,than,too,very,can,will,just,also,not,no,' +
+        'nor,only,once,ever,never,should,could,would,might,may,must,our,ours,their,theirs,your,yours,his,her,' +
+        'its,it,they,them,he,she,you,we,i,me,my,mine,yourself,themselves,herself,himself,ourselves,itself'
+      ).split(','));
+      const freq = new Map();
+      const words = text.toLowerCase().match(/[a-z0-9]+(?:'[a-z0-9]+)?/g) || [];
+      for (const w of words) {
+        if (stop.has(w)) continue;
+        freq.set(w, (freq.get(w) || 0) + 1);
+      }
+      // Normalize frequencies
+      let max = 0;
+      for (const v of freq.values()) max = Math.max(max, v);
+      if (max > 0) {
+        for (const [k, v] of freq.entries()) freq.set(k, v / max);
+      }
+      return freq;
+    }
+
+    function scoreSentences(sentences, freq) {
+      // Score each sentence by sum of word frequencies, normalized by length
+      return sentences.map((s, idx) => {
+        const tokens = (s.toLowerCase().match(/[a-z0-9]+(?:'[a-z0-9]+)?/g) || []);
+        let score = 0;
+        for (const t of tokens) score += (freq.get(t) || 0);
+        // Slightly penalize very long sentences
+        const lengthPenalty = 1 + Math.max(0, tokens.length - 30) * 0.02;
+        return { idx, sentence: s, score: score / lengthPenalty };
+      });
+    }
+
+    function pickTopNSentences(sentences, n = 3) {
+      if (sentences.length <= n) return sentences;
+      // Avoid selecting extremely short/noisy sentences
+      const filtered = sentences.map((s, i) => ({ s, i }))
+        .filter(({ s }) => s.replace(/[^A-Za-z0-9]/g, '').length >= 3);
+      if (filtered.length <= n) return filtered.map(x => x.s);
+      // Build frequency and score
+      const freq = buildWordFreq(sentences.join(' '));
+      const scored = scoreSentences(sentences, freq);
+      // Pick top N by score
+      const top = [...scored].sort((a, b) => b.score - a.score).slice(0, n);
+      // Preserve original order
+      top.sort((a, b) => a.idx - b.idx);
+      return top.map(t => t.s);
+    }
+
+    function summarizeToThree(text) {
+      const clean = sanitizeText(text);
+      const sentences = splitSentences(clean);
+      if (sentences.length === 0) return clean || 'No content to summarize.';
+      const chosen = pickTopNSentences(sentences, 3);
+      // Ensure ending punctuation
+      const punctuated = chosen.map(s => /[.?!…]$/.test(s) ? s : s + '.');
+      return punctuated.join(' ');
+    }
+
+    async function fetchWithTimeout(url, ms = 12000) {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), ms);
+      try {
+        const res = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        // Expect text; if not, still try to read as text
+        const text = await res.text();
+        return { text, contentType: ct };
+      } finally {
+        clearTimeout(t);
+      }
+    }
+
+    async function robustFetchText(rawUrl) {
+      const candidates = [];
+      candidates.push(rawUrl);
+      // CORS proxies as fallbacks
+      candidates.push('https://api.allorigins.win/raw?url=' + encodeURIComponent(rawUrl));
+      candidates.push('https://cors.isomorphic-git.org/' + rawUrl);
+      const noScheme = rawUrl.replace(/^https?:\/\//i, '');
+      candidates.push('https://r.jina.ai/http://' + noScheme);
+
+      let lastErr;
+      const started = Date.now();
+      for (const u of candidates) {
+        try {
+          const { text, contentType } = await fetchWithTimeout(u, Math.max(3000, 14000 - (Date.now() - started)));
+          if (!text || !text.trim()) throw new Error('Empty response');
+          return { text, urlUsed: u, contentType };
+        } catch (e) {
+          lastErr = e;
+          // continue to next candidate
+        }
+      }
+      throw lastErr || new Error('Unable to fetch text');
+    }
+
+    function showSource(text) {
+      sourceTextEl.textContent = text;
+      metaEl.textContent = `${text.length} chars`;
+    }
+
+    function showSummary(text) {
+      summaryEl.textContent = text;
+    }
+
+    async function loadAndSummarize(url) {
+      setStatus('loading', 'Loading text…');
+      summaryEl.textContent = 'Summarizing…';
+      sourceTextEl.textContent = 'Fetching…';
+      metaEl.textContent = '';
+      let text = '';
+      let via = '';
+      const t0 = performance.now();
+      try {
+        if (url) {
+          const { text: fetched, urlUsed } = await robustFetchText(url);
+          text = sanitizeText(fetched);
+          via = urlUsed;
+        } else {
+          text = SAMPLE_TEXT;
+          via = 'sample';
+        }
+        if (!text.trim()) throw new Error('No text content received.');
+        showSource(text);
+        const summary = summarizeToThree(text);
+        showSummary(summary);
+        const dt = Math.round(performance.now() - t0);
+        metaEl.textContent = `${text.length} chars • Fetched via: ${via} • ${dt} ms`;
+        setStatus('ok', 'Done');
+      } catch (err) {
+        // Fallback to sample
+        showSource(SAMPLE_TEXT);
+        const summary = summarizeToThree(SAMPLE_TEXT);
+        showSummary(summary);
+        metaEl.textContent = `Using sample (fallback). Reason: ${err && err.message ? err.message : 'Unknown error'}`;
+        setStatus('error', 'Fetch failed • Using sample');
+      }
+    }
+
+    // Wire up UI
+    summarizeBtn.addEventListener('click', () => {
+      const u = urlInput.value.trim();
+      showPassedUrl(u || null);
+      loadAndSummarize(u || null);
+      // Update the URL without reloading (for convenience)
+      const sp = new URLSearchParams(window.location.search);
+      if (u) sp.set('url', u); else sp.delete('url');
+      history.replaceState(null, '', `${location.pathname}?${sp.toString()}`);
+    });
+
+    useSampleBtn.addEventListener('click', () => {
+      urlInput.value = '';
+      showPassedUrl(null);
+      loadAndSummarize(null);
+      const sp = new URLSearchParams(window.location.search);
+      sp.delete('url');
+      history.replaceState(null, '', `${location.pathname}${sp.toString() ? '?' + sp.toString() : ''}`);
+    });
+
+    reloadLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      location.reload();
+    });
+
+    // Auto-run on load if ?url= is present
+    (function init() {
+      setStatus('idle', 'Idle');
+      const urlParam = getQueryParam('url');
+      if (urlParam) {
+        urlInput.value = urlParam;
+        showPassedUrl(urlParam);
+        // Auto-start
+        loadAndSummarize(urlParam);
+      } else {
+        showPassedUrl(null);
+        // Default to sample immediately
+        loadAndSummarize(null);
+      }
+    })();
+  </script>
+</body>
+</html>
